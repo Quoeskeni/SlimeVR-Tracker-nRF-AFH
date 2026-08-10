@@ -17,6 +17,7 @@
 static int8_t channel_scores[AFH_CHANNEL_COUNT];
 static uint8_t current_channel = AFH_DEFAULT_CHANNEL;
 static uint8_t current_epoch;
+static uint8_t next_candidate_channel = AFH_DEFAULT_CHANNEL;
 
 static int8_t clamp_score(int16_t score)
 {
@@ -32,6 +33,7 @@ void afh_init(void)
 	memset(channel_scores, AFH_INITIAL_SCORE, sizeof(channel_scores));
 	current_channel = AFH_DEFAULT_CHANNEL;
 	current_epoch = 0;
+	next_candidate_channel = AFH_DEFAULT_CHANNEL;
 }
 
 bool afh_is_channel_valid(uint8_t channel)
@@ -96,12 +98,25 @@ uint8_t afh_select_best_channel(void)
 	uint8_t best_channel = current_channel;
 	int8_t best_score = channel_scores[current_channel];
 
-	for (uint8_t channel = AFH_MIN_CHANNEL; channel <= AFH_MAX_CHANNEL; channel++) {
+	/*
+	 * Walk the channel map in a round-robin order instead of always starting at
+	 * channel 0. This keeps automatic recovery deterministic while preventing
+	 * repeated ties from pinning all trackers to the same replacement channel.
+	 */
+	for (uint8_t offset = 1U; offset <= AFH_CHANNEL_COUNT; offset++) {
+		uint8_t channel = (uint8_t)((next_candidate_channel + offset) % AFH_CHANNEL_COUNT);
+
+		if (!afh_is_channel_valid(channel) || channel == current_channel)
+			continue;
+
 		if (channel_scores[channel] > best_score) {
 			best_score = channel_scores[channel];
 			best_channel = channel;
 		}
 	}
+
+	if (best_channel != current_channel)
+		next_candidate_channel = best_channel;
 
 	return best_channel;
 }
