@@ -92,6 +92,12 @@ uint8_t afh_wrapper_get_epoch(void)
 	return afh_get_epoch();
 }
 
+uint8_t afh_wrapper_get_tx_failures(void)
+{
+	afh_wrapper_init();
+	return consecutive_tx_failures;
+}
+
 void afh_wrapper_record_tx_success(void)
 {
 	afh_wrapper_init();

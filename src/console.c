@@ -4,6 +4,8 @@
 #include "sensor/sensor.h"
 #include "sensor/calibration.h"
 #include "connection/esb.h"
+#include "connection/afh.h"
+#include "connection/afh_wrapper.h"
 #include "build_defines.h"
 #include "parse_args.h"
 
@@ -486,6 +488,14 @@ static inline void strtolower(char *str)
 		str[i] = tolower(str[i]);
 }
 
+static void print_afh_info(void)
+{
+	printk("AFH channel: %u\n", afh_wrapper_get_channel());
+	printk("AFH epoch: %u\n", afh_wrapper_get_epoch());
+	printk("AFH consecutive TX errors: %u\n", afh_wrapper_get_tx_failures());
+	printk("AFH default channel: %u\n", AFH_DEFAULT_CHANNEL);
+}
+
 static void print_help(void)
 {
 	printk("\nhelp                         Display this help text\n");
@@ -503,6 +513,8 @@ static void print_help(void)
 	printk("\nset <address>                Manually set receiver\n");
 	printk("pair                         Enter pairing mode\n");
 	printk("clear                        Clear pairing data\n");
+	printk("afh_info                     Get AFH channel, epoch and error status\n");
+	printk("afh_set_channel <ch>         Force AFH RF channel\n");
 #if DFU_EXISTS
 	printk("\ndfu                          Enter DFU bootloader\n");
 #endif
@@ -560,6 +572,8 @@ static void console_thread(void)
 	const char command_set[] = "set";
 	const char command_pair[] = "pair";
 	const char command_clear[] = "clear";
+	const char command_afh_info[] = "afh_info";
+	const char command_afh_set_channel[] = "afh_set_channel";
 #if DFU_EXISTS
 	const char command_dfu[] = "dfu";
 #endif
@@ -664,6 +678,27 @@ static void console_thread(void)
 		else if (strcmp(argv[0], command_clear) == 0)
 		{
 			esb_clear_pair();
+		}
+		else if (strcmp(argv[0], command_afh_info) == 0)
+		{
+			print_afh_info();
+		}
+		else if (strcmp(argv[0], command_afh_set_channel) == 0)
+		{
+			if (argc != 2) {
+				printk("Invalid number of arguments\n");
+				continue;
+			}
+			uint32_t channel = parse_u32(argv[1], 10);
+			if (channel > UINT8_MAX || !afh_is_channel_valid((uint8_t)channel)) {
+				printk("Invalid AFH channel\n");
+				continue;
+			}
+			int err = afh_wrapper_apply_channel((uint8_t)channel);
+			if (err)
+				printk("Failed to set AFH channel: %d\n", err);
+			else
+				print_afh_info();
 		}
 #if DFU_EXISTS
 		else if (strcmp(argv[0], command_dfu) == 0)
