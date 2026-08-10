@@ -1,36 +1,46 @@
 #include "afh.h"
 
+#define AFH_SCORE_START 100
+#define AFH_SCORE_MAX 1000
+#define AFH_PENALTY 10
+
 static uint8_t current_channel = 2;
 static uint16_t channel_score[AFH_CHANNEL_COUNT];
 
 void afh_init(void)
 {
-	for (int i = 0; i < AFH_CHANNEL_COUNT; i++)
-		channel_score[i] = 100;
+	for (uint8_t i = 0; i < AFH_CHANNEL_COUNT; i++)
+		channel_score[i] = AFH_SCORE_START;
 }
 
 uint8_t afh_get_channel(void)
 {
 	uint8_t best = current_channel;
+
 	for (uint8_t i = 0; i < AFH_CHANNEL_COUNT; i++)
 	{
 		if (channel_score[i] > channel_score[best])
 			best = i;
 	}
+
 	current_channel = best;
 	return current_channel;
 }
 
 void afh_report_success(void)
 {
-	if (channel_score[current_channel] < 1000)
-		channel_score[current_channel]++;
+	uint16_t *score = &channel_score[current_channel];
+	if (*score < AFH_SCORE_MAX)
+		(*score)++;
 }
 
 void afh_report_failure(void)
 {
-	if (channel_score[current_channel] > 0)
-		channel_score[current_channel] -= 5;
+	uint16_t *score = &channel_score[current_channel];
+	if (*score > AFH_PENALTY)
+		*score -= AFH_PENALTY;
+	else
+		*score = 0;
 }
 
 void afh_force_channel(uint8_t channel)
