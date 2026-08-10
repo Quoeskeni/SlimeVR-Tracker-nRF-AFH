@@ -6,7 +6,7 @@
 
 #include <zephyr/sys/util.h>
 
-#define AFH_CHANNEL_COUNT 80U
+#define AFH_CHANNEL_COUNT 101U
 #define AFH_DEFAULT_CHANNEL 2U
 #define AFH_MIN_CHANNEL 0U
 #define AFH_MAX_CHANNEL (AFH_CHANNEL_COUNT - 1U)
