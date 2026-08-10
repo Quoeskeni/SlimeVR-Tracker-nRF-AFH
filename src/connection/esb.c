@@ -31,6 +31,8 @@
 #include <zephyr/sys/crc.h>
 
 #include "esb.h"
+#include "afh.h"
+#include "afh_wrapper.h"
 
 uint8_t last_reset = 0;
 //const nrfx_timer_t m_timer = NRFX_TIMER_INSTANCE(1);
@@ -49,6 +51,8 @@ static struct esb_payload tx_payload = ESB_CREATE_PAYLOAD(0,
 														  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 static struct esb_payload tx_payload_pair = ESB_CREATE_PAYLOAD(0,
 														  0, 0, 0, 0, 0, 0, 0, 0);
+static struct esb_payload tx_payload_afh_sync = ESB_CREATE_PAYLOAD(0,
+														  0, 0, 0, 0, 0, 0, 0, 0);
 
 static uint8_t paired_addr[8] = {0};
 
@@ -63,6 +67,8 @@ LOG_MODULE_REGISTER(esb_event, LOG_LEVEL_INF);
 
 static void esb_thread(void);
 K_THREAD_DEFINE(esb_thread_id, 512, esb_thread, NULL, NULL, NULL, ESB_THREAD_PRIORITY, 0, 0);
+static void esb_apply_pending_afh_channel(void);
+static void esb_write_afh_sync(uint8_t channel, uint8_t epoch);
 
 uint64_t pairing_packets = 0;
 
@@ -80,6 +86,8 @@ void event_handler(struct esb_evt const *event)
 	switch (event->evt_id)
 	{
 	case ESB_EVENT_TX_SUCCESS:
+		if (esb_paired)
+			afh_wrapper_record_tx_success();
 		if (!paired_addr[0]) // zero, not paired
 			pairing_packets++; // keep track of pairing state
 		if (tx_errors >= TX_ERROR_THRESHOLD && tx_errors < TX_ERROR_THRESHOLD + TX_ERROR_CLEAR_RATE && last_tx_fail == 0)
@@ -96,6 +104,8 @@ void event_handler(struct esb_evt const *event)
 			clocks_stop();
 		break;
 	case ESB_EVENT_TX_FAILED:
+		if (esb_paired)
+			afh_wrapper_record_tx_failure();
 		if (tx_errors < TX_ERROR_MAX)
 			tx_errors++;
 		if (tx_errors == TX_ERROR_THRESHOLD && last_tx_success == 0) // consecutive failure to transmit
@@ -120,8 +130,12 @@ void event_handler(struct esb_evt const *event)
 			}
 			else
 			{
+				if (afh_wrapper_handle_ack_packet(rx_payload.data, rx_payload.length, paired_addr[1]))
+					break;
 				if (rx_payload.length == 4)
 				{
+					afh_wrapper_record_rx_packet(rx_payload.rssi);
+					afh_wrapper_queue_advertised_channel(rx_payload.data[2], rx_payload.data[3]);
 					// TODO: Device should never receive packets if it is already paired, why is this packet received?
 					// This may be part of acknowledge
 //					if (!nrfx_timer_init_check(&m_timer))
@@ -301,6 +315,9 @@ int esb_initialize(bool tx)
 	if (!err)
 		esb_set_prefixes(addr_prefix, ARRAY_SIZE(addr_prefix));
 
+	if (!err)
+		err = afh_wrapper_apply_current_channel();
+
 	if (err)
 	{
 		LOG_ERR("ESB initialization failed: %d", err);
@@ -321,6 +338,34 @@ void esb_deinitialize(void)
 		esb_disable();
 	}
 	esb_initialized = false;
+}
+
+static void esb_apply_pending_afh_channel(void)
+{
+	uint8_t channel;
+	uint8_t epoch;
+	int err;
+
+	if (!esb_paired || !afh_wrapper_take_pending_channel(&channel, &epoch))
+		return;
+
+	LOG_INF("Applying pending AFH channel %u epoch %u", channel, epoch);
+	err = afh_wrapper_set_channel_state(channel, epoch);
+	if (err) {
+		LOG_ERR("AFH rejected pending channel %u epoch %u: %d", channel, epoch, err);
+		return;
+	}
+
+	esb_deinitialize();
+	err = esb_initialize(true);
+	if (err) {
+		LOG_ERR("AFH tracker channel restart failed: %d", err);
+		esb_deinitialize();
+		afh_wrapper_set_channel_state(AFH_DEFAULT_CHANNEL, epoch);
+		err = esb_initialize(true);
+		if (err)
+			LOG_ERR("AFH tracker default channel restart failed: %d", err);
+	}
 }
 
 inline void esb_set_addr_discovery(void)
@@ -497,6 +542,25 @@ void esb_write(uint8_t *data)
 	send_data = true;
 }
 
+static void esb_write_afh_sync(uint8_t channel, uint8_t epoch)
+{
+	if (!esb_initialized || !esb_paired)
+		return;
+	if (!clock_status)
+		clocks_start();
+	tx_payload_afh_sync.pipe = 1;
+	tx_payload_afh_sync.length = AFH_SYNC_PACKET_SIZE;
+#if defined(NRF54L15_XXAA)
+	tx_payload_afh_sync.noack = true;
+#else
+	tx_payload_afh_sync.noack = false;
+#endif
+	afh_build_sync_packet(tx_payload_afh_sync.data, paired_addr[1], channel, epoch);
+	esb_flush_tx();
+	esb_write_payload(&tx_payload_afh_sync);
+	send_data = true;
+}
+
 bool esb_ready(void)
 {
 	return esb_initialized && esb_paired;
@@ -510,14 +574,22 @@ static void esb_thread(void)
 
 	// Read paired address from retained
 	memcpy(paired_addr, retained->paired_addr, sizeof(paired_addr));
+	afh_wrapper_init();
 
 	while (1)
 	{
+		uint8_t afh_channel;
+		uint8_t afh_epoch;
+
 		if (!esb_paired && (!use_hid || paired_addr[0] || (!get_status(SYS_STATUS_USB_CONNECTED) && k_uptime_get() - 750 > start_time))) // only automatically enter pairing while not potentially communicating by usb, however allow esb if already paired
 		{
 			esb_pair();
 			esb_initialize(true);
 		}
+		if (afh_wrapper_take_pending_sync(&afh_channel, &afh_epoch))
+			esb_write_afh_sync(afh_channel, afh_epoch);
+		afh_wrapper_check_handshake_timeout();
+		esb_apply_pending_afh_channel();
 		if (tx_errors >= TX_ERROR_THRESHOLD)
 		{
 			if (!get_status(SYS_STATUS_CONNECTION_ERROR) && (!use_hid || !get_status(SYS_STATUS_USB_CONNECTED))) // only raise error while not potentially communicating by usb
