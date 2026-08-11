@@ -697,10 +697,11 @@ static void console_thread(void)
 				continue;
 			}
 			int err = afh_wrapper_apply_channel((uint8_t)channel);
-			if (err)
-				printk("Failed to set AFH channel: %d\n", err);
-			else
-				print_afh_info();
+			if (err) {
+				afh_wrapper_set_channel_state((uint8_t)channel, afh_wrapper_get_epoch());
+				printk("AFH channel state set to %u; RF apply deferred until radio restart (err %d)\n", (uint8_t)channel, err);
+			}
+			print_afh_info();
 		}
 #if DFU_EXISTS
 		else if (strcmp(argv[0], command_dfu) == 0)
