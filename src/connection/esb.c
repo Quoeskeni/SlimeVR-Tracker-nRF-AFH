@@ -502,18 +502,20 @@ void esb_pair(void)
 			else
 				k_msleep(1000 - time_delta);
 		}
+		if (!paired_addr[0])
+		{
+			esb_deinitialize();
+			clocks_stop();
+			set_led(SYS_LED_PATTERN_OFF, SYS_LED_PRIORITY_PAIR);
+			return;
+		}
+
 		set_led(SYS_LED_PATTERN_ONESHOT_COMPLETE, SYS_LED_PRIORITY_PAIR);
 		LOG_INF("Paired");
 		LOG_INF("Pairing state: paired");
 		sys_write(PAIRED_ID, retained->paired_addr, paired_addr, sizeof(paired_addr)); // Write new address and tracker id
 		esb_deinitialize();
 		k_msleep(1600); // wait for led pattern
-	}
-	if (!paired_addr[0])
-	{
-		esb_deinitialize();
-		clocks_stop();
-		return;
 	}
 
 	LOG_INF("Tracker ID: %u", paired_addr[1]);
