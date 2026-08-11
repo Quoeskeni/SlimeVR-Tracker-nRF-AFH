@@ -71,6 +71,7 @@ static void esb_apply_pending_afh_channel(void);
 static void esb_write_afh_sync(uint8_t channel, uint8_t epoch);
 
 uint64_t pairing_packets = 0;
+static bool usb_pairing_timed_out = false;
 
 //|type    |description
 //|TX  CRC8|pairing
@@ -444,6 +445,8 @@ void esb_pair(void)
 		LOG_INF("Checksum: %02X", checksum);
 		tx_payload_pair.data[0] = checksum; // Use checksum to make sure packet is for this device
 		set_led(SYS_LED_PATTERN_SHORT, SYS_LED_PRIORITY_PAIR);
+		tx_payload_pair.data[1] = 0;
+		usb_pairing_timed_out = false;
 		int64_t pairing_begin = k_uptime_get();
 		while (paired_addr[0] != checksum)
 		{
@@ -452,6 +455,7 @@ void esb_pair(void)
 			{
 				LOG_WRN("Pairing timeout while USB console is connected");
 				LOG_INF("Pairing state: stopped");
+				usb_pairing_timed_out = true;
 				break;
 			}
 
@@ -470,25 +474,8 @@ void esb_pair(void)
 				paired_addr[0] = 0; // Packet not for this device
 			}
 
-//			esb_flush_rx();
-//			esb_flush_tx();
-
 			pairing_packets = 0;
-
-			// send pairing request
-			tx_payload_pair.data[1] = 0;
 			esb_write_payload(&tx_payload_pair);
-			k_usleep(100);
-			while (!esb_is_idle() && (k_uptime_get() < (time_begin + 10)))
-				k_usleep(1);
-
-			// receive ack data
-			tx_payload_pair.data[1] = 1;
-			if ((pairing_packets == 1) && (k_uptime_get() < (time_begin + 10)))
-				esb_write_payload(&tx_payload_pair);
-			k_usleep(100);
-			while (!esb_is_idle() && (k_uptime_get() < (time_begin + 10)))
-				k_usleep(1);
 
 			if (pairing_packets == 2)
 				LOG_INF("Pairing request received");
@@ -496,11 +483,7 @@ void esb_pair(void)
 			if (clock_status && !get_status(SYS_STATUS_USB_CONNECTED))
 				clocks_stop();
 
-			int64_t time_delta = k_uptime_get() - time_begin;
-			if (time_delta > 1000)
-				k_yield();
-			else
-				k_msleep(1000 - time_delta);
+			k_msleep(50);
 		}
 		if (!paired_addr[0])
 		{
@@ -511,6 +494,7 @@ void esb_pair(void)
 		}
 
 		set_led(SYS_LED_PATTERN_ONESHOT_COMPLETE, SYS_LED_PRIORITY_PAIR);
+		LOG_INF("Pairing ACK accepted");
 		LOG_INF("Paired");
 		LOG_INF("Pairing state: paired");
 		sys_write(PAIRED_ID, retained->paired_addr, paired_addr, sizeof(paired_addr)); // Write new address and tracker id
@@ -604,7 +588,10 @@ static void esb_thread(void)
 		uint8_t afh_channel;
 		uint8_t afh_epoch;
 
-		if (!esb_paired && (!use_hid || paired_addr[0] || (!get_status(SYS_STATUS_USB_CONNECTED) && k_uptime_get() - 750 > start_time))) // only automatically enter pairing while not potentially communicating by usb, however allow esb if already paired
+		if (!get_status(SYS_STATUS_USB_CONNECTED))
+			usb_pairing_timed_out = false;
+
+		if (!esb_paired && !usb_pairing_timed_out && (!use_hid || paired_addr[0] || (!get_status(SYS_STATUS_USB_CONNECTED) && k_uptime_get() - 750 > start_time))) // only automatically enter pairing while not potentially communicating by usb, however allow esb if already paired
 		{
 			esb_pair();
 			esb_initialize(true);
