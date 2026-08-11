@@ -425,7 +425,9 @@ void esb_pair(void)
 	if (!paired_addr[0]) // zero, no receiver paired
 	{
 		LOG_INF("Pairing");
+		LOG_INF("Pairing state: started");
 		esb_set_addr_discovery();
+		afh_wrapper_set_channel_state(AFH_DEFAULT_CHANNEL, afh_wrapper_get_epoch());
 		esb_initialize(true);
 //		timer_init(); // TODO: shouldn't be here!!!
 		tx_payload_pair.pipe = 0;
@@ -492,6 +494,7 @@ void esb_pair(void)
 		}
 		set_led(SYS_LED_PATTERN_ONESHOT_COMPLETE, SYS_LED_PRIORITY_PAIR);
 		LOG_INF("Paired");
+		LOG_INF("Pairing state: paired");
 		sys_write(PAIRED_ID, retained->paired_addr, paired_addr, sizeof(paired_addr)); // Write new address and tracker id
 		esb_deinitialize();
 		k_msleep(1600); // wait for led pattern

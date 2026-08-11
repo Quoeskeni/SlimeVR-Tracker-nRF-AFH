@@ -674,6 +674,8 @@ static void console_thread(void)
 		else if (strcmp(argv[0], command_pair) == 0)
 		{
 			esb_reset_pair();
+			esb_pair();
+			esb_initialize(true);
 		}
 		else if (strcmp(argv[0], command_clear) == 0)
 		{
