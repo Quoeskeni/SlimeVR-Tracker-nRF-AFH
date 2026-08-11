@@ -444,9 +444,16 @@ void esb_pair(void)
 		LOG_INF("Checksum: %02X", checksum);
 		tx_payload_pair.data[0] = checksum; // Use checksum to make sure packet is for this device
 		set_led(SYS_LED_PATTERN_SHORT, SYS_LED_PRIORITY_PAIR);
+		int64_t pairing_begin = k_uptime_get();
 		while (paired_addr[0] != checksum)
 		{
 			int64_t time_begin = k_uptime_get();
+			if (get_status(SYS_STATUS_USB_CONNECTED) && time_begin - pairing_begin > 30000)
+			{
+				LOG_WRN("Pairing timeout while USB console is connected");
+				LOG_INF("Pairing state: stopped");
+				break;
+			}
 
 			if (!esb_initialized)
 			{
@@ -486,7 +493,7 @@ void esb_pair(void)
 			if (pairing_packets == 2)
 				LOG_INF("Pairing request received");
 
-			if (clock_status)
+			if (clock_status && !get_status(SYS_STATUS_USB_CONNECTED))
 				clocks_stop();
 
 			int64_t time_delta = k_uptime_get() - time_begin;
@@ -502,6 +509,13 @@ void esb_pair(void)
 		esb_deinitialize();
 		k_msleep(1600); // wait for led pattern
 	}
+	if (!paired_addr[0])
+	{
+		esb_deinitialize();
+		clocks_stop();
+		return;
+	}
+
 	LOG_INF("Tracker ID: %u", paired_addr[1]);
 	LOG_INF("Receiver address: %012llX", (*(uint64_t *)&retained->paired_addr[0] >> 16) & 0xFFFFFFFFFFFF);
 
@@ -509,7 +523,8 @@ void esb_pair(void)
 
 	esb_set_addr_paired();
 	esb_paired = true;
-	clocks_stop();
+	if (!get_status(SYS_STATUS_USB_CONNECTED))
+		clocks_stop();
 }
 
 void esb_reset_pair(void)
