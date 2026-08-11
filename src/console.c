@@ -737,7 +737,7 @@ static void console_thread(void)
 			else
 				printk("Invalid argument\n");
 		}
-		else if (strcmp(line, command_list_config) == 0)
+		else if (strcmp(argv[0], command_list_config) == 0)
 		{
 			uint16_t k = 0;
 			for (int i = 0; i < CONFIG_SETTINGS_COUNT; i++)
@@ -779,7 +779,7 @@ static void console_thread(void)
 				parse_config_settings_write(argv[1], val);
 			}
 		}
-		else if (strcmp(line, command_read_config) == 0)
+		else if (strcmp(argv[0], command_read_config) == 0)
 		{
 			if (argc != 2)
 			{
@@ -803,7 +803,7 @@ static void console_thread(void)
 				parse_config_settings_read(argv[1]);
 			}
 		}
-		else if (strcmp(line, command_reset_config) == 0)
+		else if (strcmp(argv[0], command_reset_config) == 0)
 		{
 			if (argc != 2)
 			{
@@ -819,7 +819,7 @@ static void console_thread(void)
 					printk("Reset config: %s\n", argv[1]);
 			}
 		}
-		else if (strcmp(line, command_nvs) == 0)
+		else if (strcmp(argv[0], command_nvs) == 0)
 		{
 			sys_nvs_stats();
 		}
