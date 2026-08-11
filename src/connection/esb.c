@@ -125,8 +125,11 @@ void event_handler(struct esb_evt const *event)
 			if (!paired_addr[0]) // zero, not paired
 			{
 				LOG_DBG("tx: %16llX rx: %16llX", *(uint64_t *)tx_payload_pair.data, *(uint64_t *)rx_payload.data);
-				if (rx_payload.length == 8 && tx_payload_pair.data[1] == 1) // ack to second packet in pairing burst
+				if (rx_payload.length == 8 && rx_payload.data[0] == tx_payload_pair.data[0])
+				{
 					memcpy(paired_addr, rx_payload.data, sizeof(paired_addr));
+					LOG_INF("Pairing ACK accepted");
+				}
 			}
 			else
 			{
